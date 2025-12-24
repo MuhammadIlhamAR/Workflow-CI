@@ -1,11 +1,11 @@
-name: TugasAkhir-MSML-CI
+name: Rain-Prediction-Project
 
 conda_env: conda.yaml
 
 entry_points:
   main:
     parameters:
-      input_file: {type: str, default: "PRSA_Data_Aotizhongxin_preprocessing/PRSA_Data_Aotizhongxin_preprocessing.csv"}
+      input_file: {type: str, default: "PRSA_Data_Aotizhongxin_preprocessing.csv"}
       n_estimators: {type: int, default: 100}
       max_depth: {type: int, default: 20}
     command: "python modelling.py --input_file {input_file} --n_estimators {n_estimators} --max_depth {max_depth}"
