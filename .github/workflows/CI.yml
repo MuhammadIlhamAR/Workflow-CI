@@ -1,32 +1,36 @@
-name: CI-MLFlow-Retraining
+name: Model Training Workflow
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
   train:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v2
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v2
         with:
-          python-version: '3.8'
+          python-version: '3.10'
 
       - name: Install Dependencies
         run: |
-          # Gue benerin typo 'mlfow' jadi 'mlflow' di sini
-          pip install mlflow dagshub pandas scikit-learn matplotlib seaborn
+          python -m pip install --upgrade pip
+          pip install pandas scikit-learn mlflow dagshub matplotlib seaborn
 
-      - name: Run MLflow Project
+      - name: Run MLflow Training
+        # Bagian ini sangat krusial untuk menghubungkan Secrets ke script Python
         env:
-          MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
-          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+          DAGSHUB_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
+          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
         run: |
-          # Masuk ke folder tempat file MLProject lo berada
-          cd MLProject-Folder
-          mlflow run . --env-manager=local
+          # Pastikan path ke modelling.py dan dataset sudah benar
+          python "MLProject-Folder/modelling.py" --input_file "MLProject-Folder/PRSA_Data_Aotizhongxin_preprocessing.csv" --n_estimators 100 --max_depth 20
