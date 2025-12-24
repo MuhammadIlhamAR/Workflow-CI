@@ -6,9 +6,17 @@ import mlflow.sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 import dagshub
+import os
 
-dagshub.init(repo_owner='m.ilham2408', repo_name='my-first-repo', _token='630612ff2244bfc83cc942fb8c95a99bff802c06')
-mlflow.set_tracking_uri("https://dagshub.com/m.ilham2408/my-first-repo.mlflow")
+username = os.getenv('DAGSHUB_USERNAME')
+token = os.getenv('DAGSHUB_TOKEN')
+
+if username and token:
+    os.environ['MLFLOW_TRACKING_USERNAME'] = username
+    os.environ['MLFLOW_TRACKING_PASSWORD'] = token
+    
+    dagshub.init(repo_owner=username, repo_name='my-first-repo') 
+    mlflow.set_tracking_uri(f"https://dagshub.com/m.ilham2408/my-first-repo.mlflow")
 
 def train_model(input_file, n_estimators, max_depth):
     mlflow.autolog(log_models=True)
