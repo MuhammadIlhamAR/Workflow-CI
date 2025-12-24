@@ -8,15 +8,16 @@ from sklearn.ensemble import RandomForestClassifier
 import dagshub
 import os
 
-username = os.getenv('DAGSHUB_USERNAME')
-token = os.getenv('DAGSHUB_TOKEN')
+def train_model(input_file, n_estimators, max_depth):
+    username = os.getenv('DAGSHUB_USERNAME')
+    token = os.getenv('DAGSHUB_TOKEN')
 
-if username and token:
-    os.environ['MLFLOW_TRACKING_USERNAME'] = username
-    os.environ['MLFLOW_TRACKING_PASSWORD'] = token
-    
-    dagshub.init(repo_owner=username, repo_name='my-first-repo') 
-    mlflow.set_tracking_uri(f"https://dagshub.com/m.ilham2408/my-first-repo.mlflow")
+    if username and token:
+        # Menghubungkan script ke server remote DagsHub
+        os.environ['MLFLOW_TRACKING_USERNAME'] = username
+        os.environ['MLFLOW_TRACKING_PASSWORD'] = token
+        mlflow.set_tracking_uri(f"https://dagshub.com/{username}/my-first-repo.mlflow")
+        dagshub.init(repo_owner=username, repo_name='my-first-repo')
 
 def train_model(input_file, n_estimators, max_depth):
     mlflow.autolog(log_models=True)
