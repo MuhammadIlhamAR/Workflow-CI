@@ -16,8 +16,8 @@ def train_model(input_file, n_estimators, max_depth):
         # Menghubungkan script ke server remote DagsHub
         os.environ['MLFLOW_TRACKING_USERNAME'] = username
         os.environ['MLFLOW_TRACKING_PASSWORD'] = token
-        mlflow.set_tracking_uri(f"https://dagshub.com/{username}/my-first-repo.mlflow")
-        dagshub.init(repo_owner=username, repo_name='my-first-repo')
+        mlflow.set_tracking_uri("https://dagshub.com/m.ilham2408/my-first-repo.mlflow")
+        dagshub.init(repo_owner= 'm.ilham2408', repo_name='my-first-repo')
 
 def train_model(input_file, n_estimators, max_depth):
     mlflow.autolog(log_models=True)
