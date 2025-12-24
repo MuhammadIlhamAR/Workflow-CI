@@ -5,6 +5,10 @@ import mlflow
 import mlflow.sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
+import dagshub
+
+dagshub.init(repo_owner='m.ilham2408', repo_name='my-first-repo', _token='630612ff2244bfc83cc942fb8c95a99bff802c06')
+mlflow.set_tracking_uri("https://dagshub.com/m.ilham2408/my-first-repo.mlflow")
 
 def train_model(input_file, n_estimators, max_depth):
     mlflow.autolog(log_models=True)
