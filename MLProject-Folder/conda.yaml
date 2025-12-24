@@ -1,0 +1,13 @@
+name: rainfall_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.8
+  - pip
+  - pip:
+      - mlflow
+      - pandas
+      - scikit-learn
+      - matplotlib
+      - seaborn
+      - dagshub
