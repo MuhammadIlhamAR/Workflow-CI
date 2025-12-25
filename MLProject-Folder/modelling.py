@@ -9,7 +9,7 @@ import pandas as pd
 import mlflow
 import mlflow.sklearn
 
-# anti Tkinter / GUI error di CI
+# Anti Tkinter error di CI/headless
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -30,15 +30,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 # Dataset resolver
 # =========================
 def resolve_input_path(p: str) -> str:
+    # 1) path apa adanya
     if p and os.path.exists(p):
         return p
 
+    # 2) kalau user kirim path panjang, coba ambil basename
     if p:
         base = os.path.basename(p)
         if os.path.exists(base):
-            logging.info("Input '%s' tidak ada, pakai '%s' di root.", p, base)
+            logging.info("Input '%s' tidak ada, pakai '%s' di folder kerja.", p, base)
             return base
 
+    # 3) cari otomatis file preprocessing PRSA
     matches = glob.glob("**/*PRSA*preprocess*.csv", recursive=True)
     if matches:
         logging.info("Auto-found dataset: %s", matches[0])
@@ -50,12 +53,12 @@ def resolve_input_path(p: str) -> str:
         return matches[0]
 
     raise FileNotFoundError(
-        f"Dataset tidak ditemukan. Coba taruh file csv di folder ini atau pakai --input_file PATH_CSV"
+        f"Dataset tidak ditemukan. Pastikan file csv tersedia atau pakai --input_file PATH_CSV"
     )
 
 
 # =========================
-# Build pipeline
+# Pipeline builder
 # =========================
 def build_pipeline(X: pd.DataFrame, n_estimators: int, max_depth: int | None, seed: int = 42) -> Pipeline:
     num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
@@ -66,22 +69,22 @@ def build_pipeline(X: pd.DataFrame, n_estimators: int, max_depth: int | None, se
             ("num", SimpleImputer(strategy="median"), num_cols),
             ("cat", Pipeline(steps=[
                 ("imputer", SimpleImputer(strategy="most_frequent")),
-                ("onehot", OneHotEncoder(handle_unknown="ignore"))
+                ("onehot", OneHotEncoder(handle_unknown="ignore")),
             ]), cat_cols),
         ],
-        remainder="drop"
+        remainder="drop",
     )
 
     rf = RandomForestClassifier(
         n_estimators=n_estimators,
         max_depth=max_depth,
         random_state=seed,
-        n_jobs=-1
+        n_jobs=-1,
     )
 
     return Pipeline(steps=[
         ("prep", preprocessor),
-        ("rf", rf)
+        ("rf", rf),
     ])
 
 
@@ -102,7 +105,7 @@ def save_confusion_matrix(cm: np.ndarray, out_path: str, title: str):
             plt.text(
                 j, i, f"{cm[i, j]}",
                 ha="center", va="center",
-                color="white" if cm[i, j] > thresh else "black"
+                color="white" if cm[i, j] > thresh else "black",
             )
 
     plt.tight_layout()
@@ -114,22 +117,23 @@ def save_confusion_matrix(cm: np.ndarray, out_path: str, title: str):
 # MAIN
 # =========================
 def main():
-    parser = argparse.ArgumentParser(description="RandomForest Training + MLflow (baseline)")
+    parser = argparse.ArgumentParser(description="RandomForest Training + MLflow Project (baseline)")
     parser.add_argument(
         "--input_file",
         type=str,
         default="PRSA_Data_Aotizhongxin_preprocessing.csv",
-        help="Path ke dataset preprocessing CSV"
+        help="Path ke dataset preprocessing CSV",
     )
     parser.add_argument("--n_estimators", type=int, default=100)
     parser.add_argument("--max_depth", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--experiment_name", type=str, default="Membangun_Model")
-    parser.add_argument("--run_name", type=str, default="rf_baseline")
     args = parser.parse_args()
 
-    # max_depth: kalau user kasih 0 atau negatif, treat jadi None
+    # max_depth: kalau <= 0 dianggap None
     max_depth = None if (args.max_depth is None or args.max_depth <= 0) else int(args.max_depth)
+
+    # ✅ Autolog boleh; jangan set_experiment / start_run (MLflow Project yang handle)
+    mlflow.sklearn.autolog(log_models=True)
 
     csv_path = resolve_input_path(args.input_file)
     df = pd.read_csv(csv_path)
@@ -148,37 +152,35 @@ def main():
         X, y, test_size=0.2, random_state=args.seed, stratify=y
     )
 
-    mlflow.set_experiment(args.experiment_name)
-    mlflow.sklearn.autolog(log_models=True)
-
     model = build_pipeline(X_train, n_estimators=args.n_estimators, max_depth=max_depth, seed=args.seed)
+    model.fit(X_train, y_train)
 
-    with mlflow.start_run(run_name=args.run_name):
-        mlflow.log_param("dataset_path", csv_path)
+    y_pred = model.predict(X_test)
+    acc = float(accuracy_score(y_test, y_pred))
+    f1 = float(f1_score(y_test, y_pred))
 
-        model.fit(X_train, y_train)
+    # manual log tambahan (opsional, memperjelas)
+    mlflow.log_param("dataset_path", csv_path)
+    mlflow.log_param("n_estimators", int(args.n_estimators))
+    mlflow.log_param("max_depth", -1 if max_depth is None else int(max_depth))
+    mlflow.log_metric("test_accuracy_manual", acc)
+    mlflow.log_metric("test_f1_manual", f1)
 
-        y_pred = model.predict(X_test)
-        acc = float(accuracy_score(y_test, y_pred))
-        f1 = float(f1_score(y_test, y_pred))
+    # artifacts
+    os.makedirs("artifacts", exist_ok=True)
 
-        mlflow.log_metric("test_accuracy_manual", acc)
-        mlflow.log_metric("test_f1_manual", f1)
+    report = classification_report(y_test, y_pred, target_names=["Tidak Hujan", "Hujan"])
+    report_path = os.path.join("artifacts", "classification_report.txt")
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(report)
+    mlflow.log_artifact(report_path)
 
-        os.makedirs("artifacts", exist_ok=True)
+    cm = confusion_matrix(y_test, y_pred)
+    cm_path = os.path.join("artifacts", "confusion_matrix.png")
+    save_confusion_matrix(cm, cm_path, title="Confusion Matrix - RF Baseline")
+    mlflow.log_artifact(cm_path)
 
-        report = classification_report(y_test, y_pred, target_names=["Tidak Hujan", "Hujan"])
-        report_path = os.path.join("artifacts", "classification_report.txt")
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(report)
-        mlflow.log_artifact(report_path)
-
-        cm = confusion_matrix(y_test, y_pred)
-        cm_path = os.path.join("artifacts", "confusion_matrix.png")
-        save_confusion_matrix(cm, cm_path, title="Confusion Matrix - RF Baseline")
-        mlflow.log_artifact(cm_path)
-
-        print(f"✅ TRAINING SELESAI | acc={acc:.4f} f1={f1:.4f}")
+    print(f"✅ TRAINING SELESAI | acc={acc:.4f} f1={f1:.4f}")
 
 
 if __name__ == "__main__":
