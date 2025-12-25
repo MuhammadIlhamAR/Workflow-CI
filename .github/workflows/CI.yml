@@ -11,7 +11,6 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # tracking ABSOLUTE (aman, gak "run not found")
       MLFLOW_TRACKING_URI: "file:${{ github.workspace }}/mlruns"
       MLFLOW_LOG_LEVEL: "WARNING"
 
@@ -24,6 +23,12 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+
+      - name: Check project files
+        run: |
+          ls -la
+          ls -la "MLProject-Folder"
+          test -f "MLProject-Folder/MLproject" && echo "MLproject OK" || (echo "MLproject NOT FOUND" && exit 1)
 
       - name: Install minimal deps
         run: |
