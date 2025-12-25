@@ -1,19 +1,10 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
-# Install mlflow dan dependensi dasar
-RUN pip install mlflow pandas scikit-learn
-
-# Buat folder kerja
 WORKDIR /app
 
-# Copy isi model lo ke dalam image
-COPY . /app/model
+RUN pip install --no-cache-dir mlflow==2.17.2 scikit-learn pandas numpy
 
-# Set environment variable untuk model
-ENV MLFLOW_MODEL_PATH=/app/model
+COPY model /app/model
 
-# Ekspos port standar MLflow
 EXPOSE 5001
-
-# Jalankan server model saat kontainer nyala
-CMD ["mlflow", "models", "serve", "-m", "/app/model", "--host", "0.0.0.0", "--port", "5001", "--no-conda"]
+CMD ["mlflow", "models", "serve", "-m", "/app/model", "-p", "5001", "--host", "0.0.0.0", "--no-conda"]
