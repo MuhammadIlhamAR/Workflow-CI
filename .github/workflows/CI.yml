@@ -2,11 +2,9 @@ name: Model Training Workflow
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
   pull_request:
-    branches:
-      - main
+    branches: [ "main" ]
 
 jobs:
   train:
@@ -14,23 +12,37 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.11"
+          cache: "pip"
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas scikit-learn mlflow dagshub matplotlib seaborn
+          # install project requirements (lebih rapi daripada pip satu-satu)
+          pip install -r requirements.txt
+          # pastikan mlflow tersedia untuk mlflow run
+          pip show mlflow
 
-      - name: Run MLflow Training
-        # Bagian ini sangat krusial untuk menghubungkan Secrets ke script Python
+      - name: Run MLflow Project (Training)
         env:
-          DAGSHUB_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
-          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+          # Pastikan tracking lokal (artefak muncul di repo workspace)
+          MLFLOW_TRACKING_URI: "file:./mlruns"
         run: |
-          # Pastikan path ke modelling.py dan dataset sudah benar
-          python "MLProject-Folder/modelling.py" --input_file "MLProject-Folder/PRSA_Data_Aotizhongxin_preprocessing.csv" --n_estimators 100 --max_depth 20
+          PROJECT_DIR="MLProject-Folder"
+          # Jalankan MLflow Project (kriteria run model)
+          mlflow run "$PROJECT_DIR" -P input_file="PRSA_Data_Aotizhongxin_preprocessing.csv" -P n_estimators=100 -P max_depth=20
+
+      - name: Upload Training Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-artifacts
+          path: |
+            mlruns
+            artifacts
+          if-no-files-found: warn
