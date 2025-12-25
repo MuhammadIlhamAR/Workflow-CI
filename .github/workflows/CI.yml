@@ -23,19 +23,18 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # install project requirements (lebih rapi daripada pip satu-satu)
-          pip install numpy pandas mlflow scikit-learn matplotlib
-          # pastikan mlflow tersedia untuk mlflow run
+          pip install -r requirements.txt
           pip show mlflow
 
       - name: Run MLflow Project (Training)
         env:
-          # Pastikan tracking lokal (artefak muncul di repo workspace)
           MLFLOW_TRACKING_URI: "file:./mlruns"
         run: |
           PROJECT_DIR="MLProject-Folder"
-          # Jalankan MLflow Project (kriteria run model)
-          mlflow run "$PROJECT_DIR" -P input_file="PRSA_Data_Aotizhongxin_preprocessing.csv" -P n_estimators=100 -P max_depth=20
+          mlflow run "$PROJECT_DIR" \
+            -P input_file="PRSA_Data_Aotizhongxin_preprocessing.csv" \
+            -P n_estimators=100 \
+            -P max_depth=20
 
       - name: Upload Training Artifacts
         if: always()
