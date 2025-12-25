@@ -1,4 +1,4 @@
-name: CI MLflow Project (Advanced)
+name: CI MLflow Project (Conda YAML)
 
 on:
   push:
@@ -7,10 +7,9 @@ on:
     branches: [ main ]
 
 jobs:
-  train_and_deploy:
+  train:
     runs-on: ubuntu-latest
 
-    # 🔑 WAJIB: tracking URI ABSOLUTE (lebih aman di CI)
     env:
       MLFLOW_TRACKING_URI: "file:${{ github.workspace }}/mlruns"
       MLFLOW_LOG_LEVEL: "WARNING"
@@ -25,27 +24,20 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: Check environment
+      - name: Check project files
         run: |
-          python --version
-          pip --version
-          echo "Workspace:"
-          pwd
           ls -la
-          echo "MLProject folder:"
           ls -la "MLProject-Folder"
 
-      - name: Install base dependencies
+      # Kita install via pip supaya env-manager=local bisa jalan cepat.
+      # conda.yaml tetap ada (sesuai permintaan), tapi CI tidak bikin conda env.
+      - name: Install dependencies (pip for CI)
         run: |
           python -m pip install --upgrade pip
-          # install kebutuhan project (requirements ada di folder MLProject)
           pip install -r "MLProject-Folder/requirements.txt"
-          # pastikan mlflow ada
           python -c "import mlflow; print('mlflow', mlflow.__version__)"
 
-      # ✅ SESUAI REVISI (WAJIB mlflow run)
-      # ✅ Anti log panjang: env-manager local (tanpa conda)
-      - name: Run MLflow Project
+      - name: Run MLflow Project (use local env, ignore conda)
         run: |
           set -e
           python -m mlflow run "MLProject-Folder" --env-manager=local \
@@ -53,43 +45,7 @@ jobs:
             -P n_estimators=100 \
             -P max_depth=20
 
-      # (OPSIONAL) ambil run_id terakhir (buat bukti / lanjut step lain)
-      - name: Get latest MLflow run_id
-        id: get_run
-        run: |
-          python - <<'PY'
-          import os
-          import mlflow
-          from mlflow.tracking import MlflowClient
-
-          client = MlflowClient()
-
-          # experiment: pakai yang ada; kalau kamu set experiment name khusus, ganti di sini
-          exp = client.get_experiment_by_name("Membangun_Model")
-          if exp is None:
-            exp = client.get_experiment_by_name("Default")
-          exp_id = exp.experiment_id if exp else "0"
-
-          runs = client.search_runs(
-              [exp_id],
-              order_by=["attributes.start_time DESC"],
-              max_results=1
-          )
-
-          if not runs:
-              raise SystemExit("No MLflow runs found")
-
-          run_id = runs[0].info.run_id
-          print("LATEST_RUN_ID=", run_id)
-
-          # GitHub output
-          out = os.environ.get("GITHUB_OUTPUT")
-          if out:
-              with open(out, "a", encoding="utf-8") as f:
-                  f.write(f"run_id={run_id}\n")
-          PY
-
-      - name: Upload Training Artifacts
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -98,6 +54,3 @@ jobs:
             mlruns
             artifacts
           if-no-files-found: warn
-
-      - name: CI finished
-        run: echo "CI MLflow Project finished successfully ✅"
