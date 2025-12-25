@@ -1,17 +1,79 @@
-name: Build & Push Docker Image
+name: Train + Build & Push Docker
 
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  docker:
+  train_build_push:
     runs-on: ubuntu-latest
+
+    env:
+      MLFLOW_TRACKING_URI: "file:${{ github.workspace }}/mlruns"
+      MLFLOW_LOG_LEVEL: "WARNING"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r "MLProject-Folder/requirements.txt"
+          pip install mlflow
+
+      # ✅ Kriteria: training pakai mlflow run (bukan python modelling.py)
+      - name: Train with MLflow Project
+        run: |
+          set -e
+          python -m mlflow run "MLProject-Folder" --env-manager=local \
+            -P input_file="${{ github.workspace }}/MLProject-Folder/PRSA_Data_Aotizhongxin_preprocessing.csv" \
+            -P n_estimators=100 \
+            -P max_depth=20
+
+      - name: Get latest run_id
+        id: get_run
+        run: |
+          python - <<'PY'
+          import os
+          from mlflow.tracking import MlflowClient
+
+          client = MlflowClient()
+
+          # cari experiment yang dipakai (Default paling aman)
+          exp = client.get_experiment_by_name("Default")
+          exp_id = exp.experiment_id if exp else "0"
+
+          runs = client.search_runs([exp_id], order_by=["attributes.start_time DESC"], max_results=1)
+          if not runs:
+              raise SystemExit("No MLflow runs found")
+
+          run_id = runs[0].info.run_id
+          print("RUN_ID:", run_id)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"run_id={run_id}\n")
+          PY
+
+      - name: Export model artifact to ./model
+        run: |
+          set -e
+          RUN_ID="${{ steps.get_run.outputs.run_id }}"
+          echo "Export model from RUN_ID=$RUN_ID"
+          rm -rf model
+          python -m mlflow artifacts download \
+            --artifact-uri "runs:/$RUN_ID/model" \
+            --dst-path "model"
+
+          echo "Exported model content:"
+          ls -la model
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
