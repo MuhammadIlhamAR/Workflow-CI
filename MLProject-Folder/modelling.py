@@ -2,42 +2,28 @@ import os
 import glob
 import argparse
 import logging
-import random
 
 import numpy as np
 import pandas as pd
 
 import mlflow
 import mlflow.sklearn
+
+# anti Tkinter / GUI error di CI
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from sklearn.model_selection import train_test_split, StratifiedKFold, RandomizedSearchCV
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import (
-    accuracy_score,
-    f1_score,
-    confusion_matrix,
-    classification_report,
-    roc_auc_score,
-)
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, classification_report
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
-
-# =========================
-# MLflow local
-# =========================
-def setup_mlflow(experiment_name: str):
-    tracking_dir = os.path.join(os.getcwd(), "mlruns")
-    os.makedirs(tracking_dir, exist_ok=True)
-    mlflow.set_tracking_uri(f"file:{tracking_dir}")
-    mlflow.set_experiment(experiment_name)
-    logging.info("MLflow tracking -> %s", tracking_dir)
 
 
 # =========================
@@ -53,13 +39,11 @@ def resolve_input_path(p: str) -> str:
             logging.info("Input '%s' tidak ada, pakai '%s' di root.", p, base)
             return base
 
-    # cari csv yang mirip PRSA preprocessing
     matches = glob.glob("**/*PRSA*preprocess*.csv", recursive=True)
     if matches:
         logging.info("Auto-found dataset: %s", matches[0])
         return matches[0]
 
-    # fallback cari csv apapun yang ada kata preprocessing
     matches = glob.glob("**/*preprocess*.csv", recursive=True)
     if matches:
         logging.info("Auto-found dataset: %s", matches[0])
@@ -73,7 +57,7 @@ def resolve_input_path(p: str) -> str:
 # =========================
 # Build pipeline
 # =========================
-def build_pipeline(X: pd.DataFrame, random_state: int = 42) -> Pipeline:
+def build_pipeline(X: pd.DataFrame, n_estimators: int, max_depth: int | None, seed: int = 42) -> Pipeline:
     num_cols = X.select_dtypes(include=[np.number]).columns.tolist()
     cat_cols = X.select_dtypes(exclude=[np.number]).columns.tolist()
 
@@ -89,20 +73,20 @@ def build_pipeline(X: pd.DataFrame, random_state: int = 42) -> Pipeline:
     )
 
     rf = RandomForestClassifier(
-        random_state=random_state,
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        random_state=seed,
         n_jobs=-1
     )
 
-    pipe = Pipeline(steps=[
+    return Pipeline(steps=[
         ("prep", preprocessor),
         ("rf", rf)
     ])
 
-    return pipe
-
 
 # =========================
-# Simple confusion matrix plot (matplotlib only)
+# Confusion matrix plot
 # =========================
 def save_confusion_matrix(cm: np.ndarray, out_path: str, title: str):
     plt.figure(figsize=(6, 5))
@@ -130,24 +114,22 @@ def save_confusion_matrix(cm: np.ndarray, out_path: str, title: str):
 # MAIN
 # =========================
 def main():
-    parser = argparse.ArgumentParser(description="RandomForest Tuning (RandomizedSearchCV) + MLflow (local)")
+    parser = argparse.ArgumentParser(description="RandomForest Training + MLflow (baseline)")
     parser.add_argument(
         "--input_file",
         type=str,
         default="PRSA_Data_Aotizhongxin_preprocessing.csv",
         help="Path ke dataset preprocessing CSV"
     )
-    parser.add_argument("--experiment_name", type=str, default="Membangun_Model")
-    parser.add_argument("--run_name", type=str, default="rf_tuning_randomsearch")
-    parser.add_argument("--n_iter", type=int, default=25, help="Jumlah kombinasi random search")
-    parser.add_argument("--cv", type=int, default=5, help="Jumlah folds CV")
+    parser.add_argument("--n_estimators", type=int, default=100)
+    parser.add_argument("--max_depth", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--experiment_name", type=str, default="Membangun_Model")
+    parser.add_argument("--run_name", type=str, default="rf_baseline")
     args = parser.parse_args()
 
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-
-    setup_mlflow(args.experiment_name)
+    # max_depth: kalau user kasih 0 atau negatif, treat jadi None
+    max_depth = None if (args.max_depth is None or args.max_depth <= 0) else int(args.max_depth)
 
     csv_path = resolve_input_path(args.input_file)
     df = pd.read_csv(csv_path)
@@ -166,107 +148,37 @@ def main():
         X, y, test_size=0.2, random_state=args.seed, stratify=y
     )
 
-    pipeline = build_pipeline(X_train, random_state=args.seed)
+    mlflow.set_experiment(args.experiment_name)
+    mlflow.sklearn.autolog(log_models=True)
 
-    # ---- param space TANPA scipy (biar tidak ribet install) ----
-    param_distributions = {
-        "rf__n_estimators": [100, 200, 300, 400, 600],
-        "rf__max_depth": [None, 5, 10, 15, 20, 30, 40],
-        "rf__min_samples_split": [2, 5, 10, 15],
-        "rf__min_samples_leaf": [1, 2, 4, 8],
-        "rf__max_features": ["sqrt", "log2", None],
-        "rf__bootstrap": [True, False],
-    }
-
-    cv = StratifiedKFold(n_splits=args.cv, shuffle=True, random_state=args.seed)
-
-    search = RandomizedSearchCV(
-        estimator=pipeline,
-        param_distributions=param_distributions,
-        n_iter=args.n_iter,
-        scoring="f1",
-        cv=cv,
-        n_jobs=-1,
-        random_state=args.seed,
-        refit=True,
-        return_train_score=True,
-        verbose=2,  # biar keliatan progres di terminal
-    )
-
-    mlflow.sklearn.autolog(log_models=False)
+    model = build_pipeline(X_train, n_estimators=args.n_estimators, max_depth=max_depth, seed=args.seed)
 
     with mlflow.start_run(run_name=args.run_name):
-        mlflow.log_param("tuning_method", "RandomizedSearchCV")
-        mlflow.log_param("scoring", "f1")
-        mlflow.log_param("n_iter", args.n_iter)
-        mlflow.log_param("cv_folds", args.cv)
-        mlflow.log_param("seed", args.seed)
         mlflow.log_param("dataset_path", csv_path)
 
-        # Tuning
-        logging.info("Mulai tuning RandomizedSearchCV...")
-        search.fit(X_train, y_train)
-        logging.info("Tuning selesai.")
+        model.fit(X_train, y_train)
 
-        best_model = search.best_estimator_
-        best_params = search.best_params_
-        best_cv_f1 = float(search.best_score_)
-
-        mlflow.log_params(best_params)
-        mlflow.log_metric("best_cv_f1", best_cv_f1)
-
-        # Evaluate on test
-        y_pred = best_model.predict(X_test)
+        y_pred = model.predict(X_test)
         acc = float(accuracy_score(y_test, y_pred))
         f1 = float(f1_score(y_test, y_pred))
 
-        mlflow.log_metric("test_accuracy", acc)
-        mlflow.log_metric("test_f1", f1)
+        mlflow.log_metric("test_accuracy_manual", acc)
+        mlflow.log_metric("test_f1_manual", f1)
 
-        # ROC-AUC (jaga-jaga kalau ada masalah proba)
-        try:
-            y_proba = best_model.predict_proba(X_test)[:, 1]
-            auc = float(roc_auc_score(y_test, y_proba))
-            mlflow.log_metric("test_roc_auc", auc)
-        except Exception as e:
-            logging.warning("ROC-AUC tidak bisa dihitung: %s", e)
-            auc = None
-
-        # Artifacts
         os.makedirs("artifacts", exist_ok=True)
 
-        # classification report
         report = classification_report(y_test, y_pred, target_names=["Tidak Hujan", "Hujan"])
-        report_path = os.path.join("artifacts", "classification_report_tuned.txt")
+        report_path = os.path.join("artifacts", "classification_report.txt")
         with open(report_path, "w", encoding="utf-8") as f:
             f.write(report)
         mlflow.log_artifact(report_path)
 
-        # confusion matrix image
         cm = confusion_matrix(y_test, y_pred)
-        cm_path = os.path.join("artifacts", "confusion_matrix_tuned.png")
-        save_confusion_matrix(cm, cm_path, title="Confusion Matrix - Tuned RandomForest")
+        cm_path = os.path.join("artifacts", "confusion_matrix.png")
+        save_confusion_matrix(cm, cm_path, title="Confusion Matrix - RF Baseline")
         mlflow.log_artifact(cm_path)
 
-        # cv results
-        cv_results = pd.DataFrame(search.cv_results_).sort_values("rank_test_score")
-        cv_path = os.path.join("artifacts", "cv_results.csv")
-        cv_results.to_csv(cv_path, index=False)
-        mlflow.log_artifact(cv_path)
-
-        # log model
-        mlflow.sklearn.log_model(
-            sk_model=best_model,
-            artifact_path="model",
-            input_example=X_train.head(5),
-        )
-
-        print("\n✅ TUNING SELESAI")
-        print(f"Best CV F1 : {best_cv_f1:.4f}")
-        print(f"Test Acc   : {acc:.4f}")
-        print(f"Test F1    : {f1:.4f}")
-        if auc is not None:
-            print(f"Test AUC   : {auc:.4f}")
+        print(f"✅ TRAINING SELESAI | acc={acc:.4f} f1={f1:.4f}")
 
 
 if __name__ == "__main__":
